@@ -17,6 +17,8 @@ package org.gradle.profiler.ct;
 
 import org.gradle.internal.UncheckedException;
 import org.gradle.profiler.GeneratedInitScript;
+import org.gradle.profiler.GradleScenarioDefinition;
+import org.gradle.profiler.ScenarioSettings;
 
 import java.io.File;
 import java.io.IOException;
@@ -29,15 +31,18 @@ public class ChromeTraceInitScript extends GeneratedInitScript {
     private final File chromeTracePlugin;
     private final File traceFile;
 
-    public ChromeTraceInitScript(File outputDir) {
+    public ChromeTraceInitScript(ScenarioSettings scenarioSettings) {
         try {
             chromeTracePlugin = File.createTempFile("chrome-trace", "jar");
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
         chromeTracePlugin.deleteOnExit();
-        traceFile = new File(outputDir, "chrome-trace.html");
+        GradleScenarioDefinition scenario = scenarioSettings.getScenario();
+        traceFile = new File(scenario.getOutputDir(), scenario.getProfileName() + "-trace.html");
     }
+
+
 
     private void unpackChromeTracePlugin() {
         InputStream inputStream = getClass().getResourceAsStream("/META-INF/jars/chrome-trace.jar");
@@ -53,11 +58,20 @@ public class ChromeTraceInitScript extends GeneratedInitScript {
         unpackChromeTracePlugin();
         writer.write("initscript {\n");
         writer.write("    dependencies {\n");
-        writer.write("        classpath files(\"" + chromeTracePlugin.getAbsolutePath() + "\")\n");
+        writer.write("        classpath files(" + stringify(chromeTracePlugin) + ")\n");
         writer.write("    }\n");
         writer.write("}\n");
         writer.write("\n");
-        writer.write("rootProject { ext.chromeTraceFile = new File(\"" + traceFile.getAbsolutePath() + "\") }\n");
+        writer.write("rootProject { ext.chromeTraceFile = new File(" + stringify(traceFile) + ") }\n");
         writer.write("apply plugin: org.gradle.trace.GradleTracingPlugin\n");
+    }
+    
+    /**
+     * Make a string literal of the given File path, by adding surronding
+     * qoutes and escaping backslashes.
+     */
+    private static String stringify(File file) {
+        String escaped = file.getAbsolutePath().replace("\\", "\\\\");
+        return "\"" + escaped + "\"";
     }
 }
