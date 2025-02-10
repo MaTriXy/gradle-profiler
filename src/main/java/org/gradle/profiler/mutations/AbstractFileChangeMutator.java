@@ -1,67 +1,45 @@
 package org.gradle.profiler.mutations;
 
+import org.gradle.profiler.BuildContext;
 import org.gradle.profiler.BuildMutator;
+import org.gradle.profiler.ScenarioContext;
+import org.gradle.profiler.mutations.support.FileSupport;
 
 import java.io.File;
-import java.io.IOException;
-import java.nio.file.Files;
 
 public abstract class AbstractFileChangeMutator implements BuildMutator {
     protected final File sourceFile;
-    private final String originalText;
-    private long timestamp;
-    protected int counter;
+    private String originalText;
 
     protected AbstractFileChangeMutator(File sourceFile) {
         this.sourceFile = sourceFile;
-        this.timestamp = System.currentTimeMillis();
-        try {
-            originalText = new String(Files.readAllBytes(sourceFile.toPath()));
-        } catch (IOException e) {
-            throw new RuntimeException("Could not read contents of source file " + sourceFile, e);
-        }
-    }
-
-    void setTimestamp(long timestamp) {
-        this.timestamp = timestamp;
-    }
-
-    /**
-     * Returns some text that is specific to the current profiler tool invocation and is unlikely to have been included in the target source file prior to this invocation
-     * The string can be used as a Java identifier.
-     */
-    protected String getInvocationText() {
-        return "_" + String.valueOf(timestamp);
-    }
-
-    /**
-     * Returns some text that is unlikely to have been included in any previous version of the target source file.
-     * The string can be used as a Java identifier.
-     */
-    protected String getUniqueText() {
-        return "_" + String.valueOf(timestamp) + "_" + counter;
     }
 
     @Override
-    public void beforeBuild() throws IOException {
-        counter++;
+    public void beforeScenario(ScenarioContext context) {
+        this.originalText = readText(sourceFile);
+    }
+
+    @Override
+    public void beforeBuild(BuildContext context) {
         StringBuilder modifiedText = new StringBuilder(originalText);
-        applyChangeTo(modifiedText);
-        Files.write(sourceFile.toPath(), modifiedText.toString().getBytes());
+        applyChangeTo(context, modifiedText);
+        FileSupport.writeUnchecked(sourceFile.toPath(), modifiedText.toString());
     }
 
-    protected abstract void applyChangeTo(StringBuilder text);
-
-    private void revert() throws IOException {
-        Files.write(sourceFile.toPath(), originalText.getBytes());
+    private String readText(File file) {
+        return FileSupport.readUnchecked(file.toPath());
     }
+
+    protected abstract void applyChangeTo(BuildContext context, StringBuilder text);
 
     @Override
-    public void cleanup() throws IOException {
-        if (counter > 0) {
-            revert();
-            counter = 0;
-        }
+    public void afterScenario(ScenarioContext context) {
+        revert(sourceFile, originalText);
+    }
+
+    protected void revert(File file, String originalText) {
+        FileSupport.writeUnchecked(file.toPath(), originalText);
     }
 
     @Override

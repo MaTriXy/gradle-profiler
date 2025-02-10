@@ -1,10 +1,9 @@
 package org.gradle.profiler;
 
-import joptsimple.OptionSet;
-
 import java.io.File;
 import java.io.IOException;
 import java.util.List;
+import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
 class CompositeProfiler extends Profiler {
@@ -15,39 +14,61 @@ class CompositeProfiler extends Profiler {
     }
 
     @Override
+    public boolean requiresGradle() {
+        return delegates.stream().anyMatch(Profiler::requiresGradle);
+    }
+
+    @Override
     public String toString() {
         return delegates.stream().map(Object::toString).collect(Collectors.joining(", "));
     }
 
     @Override
-    public List<String> summarizeResultFile(File resultFile) {
+    public void validate(ScenarioSettings settings, Consumer<String> reporter) {
         for (Profiler delegate : delegates) {
-            List<String> summary = delegate.summarizeResultFile(resultFile);
-            if (summary != null && !summary.isEmpty()) {
-                return summary;
-            }
+            delegate.validate(settings, reporter);
         }
-        return null;
+    }
+
+    @Override
+    public void summarizeResultFile(File resultFile, Consumer<String> consumer) {
+        for (Profiler delegate : delegates) {
+            delegate.summarizeResultFile(resultFile, consumer);
+        }
     }
 
     @Override
     public ProfilerController newController(final String pid, final ScenarioSettings settings) {
         List<ProfilerController> controllers = delegates.stream()
-                .map((Profiler prof) -> prof.newController(pid,
-                        settingsFor(prof, settings)))
-                .collect(Collectors.toList());
+            .map((Profiler prof) -> prof.newController(pid,
+                settingsFor(prof, settings)))
+            .collect(Collectors.toList());
         return new ProfilerController() {
             @Override
-            public void start() throws IOException, InterruptedException {
+            public void startSession() throws IOException, InterruptedException {
                 for (ProfilerController controller : controllers) {
-                    controller.start();
+                    controller.startSession();
                 }
             }
 
             @Override
-            public void stop() throws IOException, InterruptedException {
+            public void startRecording() throws IOException, InterruptedException {
                 for (ProfilerController controller : controllers) {
-                    controller.stop();
+                    controller.startRecording();
+                }
+            }
+
+            @Override
+            public void stopRecording(String pid) throws IOException, InterruptedException {
+                for (ProfilerController controller : controllers) {
+                    controller.stopRecording(pid);
+                }
+            }
+
+            @Override
+            public void stopSession() throws IOException, InterruptedException {
+                for (ProfilerController controller : controllers) {
+                    controller.stopSession();
                 }
             }
         };
@@ -55,36 +76,25 @@ class CompositeProfiler extends Profiler {
 
     private ScenarioSettings settingsFor(final Profiler prof, final ScenarioSettings scenarioSettings) {
         InvocationSettings settings = scenarioSettings.getInvocationSettings();
-        InvocationSettings newSettings = new InvocationSettings(settings.getProjectDir(), prof, settings.isBenchmark(),
-                settings.getOutputDir(), settings.getInvoker(), settings.isDryRun(), settings.getScenarioFile(), settings.getVersions(),
-                settings.getTargets(), settings.getSystemProperties(), settings.getGradleUserHome(), settings.getWarmUpCount(),
-                settings.getBuildCount());
+        InvocationSettings newSettings = settings.newBuilder()
+            .setProfiler(prof)
+            .build();
         return new ScenarioSettings(newSettings, scenarioSettings.getScenario());
     }
 
     @Override
     public JvmArgsCalculator newJvmArgsCalculator(final ScenarioSettings settings) {
-        return new JvmArgsCalculator() {
-            @Override
-            public void calculateJvmArgs(final List<String> jvmArgs) {
-                delegates.forEach(prof -> prof.newJvmArgsCalculator(settingsFor(prof, settings)).calculateJvmArgs(jvmArgs));
-            }
-        };
+        return jvmArgs -> delegates.forEach(prof -> prof.newJvmArgsCalculator(settingsFor(prof, settings)).calculateJvmArgs(jvmArgs));
     }
 
     @Override
     public JvmArgsCalculator newInstrumentedBuildsJvmArgsCalculator(ScenarioSettings settings) {
-        return new JvmArgsCalculator() {
-            @Override
-            public void calculateJvmArgs(final List<String> jvmArgs) {
-                delegates.forEach(prof -> prof.newInstrumentedBuildsJvmArgsCalculator(settingsFor(prof, settings)).calculateJvmArgs(jvmArgs));
-            }
-        };
+        return jvmArgs -> delegates.forEach(prof -> prof.newInstrumentedBuildsJvmArgsCalculator(settingsFor(prof, settings)).calculateJvmArgs(jvmArgs));
     }
 
     @Override
     public GradleArgsCalculator newGradleArgsCalculator(ScenarioSettings settings) {
-        return new GradleArgsCalculator(){
+        return new GradleArgsCalculator() {
             @Override
             public void calculateGradleArgs(List<String> gradleArgs) {
                 delegates.forEach(prof -> prof.newGradleArgsCalculator(settingsFor(prof, settings)).calculateGradleArgs(gradleArgs));
@@ -94,7 +104,7 @@ class CompositeProfiler extends Profiler {
 
     @Override
     public GradleArgsCalculator newInstrumentedBuildsGradleArgsCalculator(ScenarioSettings settings) {
-        return new GradleArgsCalculator(){
+        return new GradleArgsCalculator() {
             @Override
             public void calculateGradleArgs(List<String> gradleArgs) {
                 delegates.forEach(prof -> prof.newInstrumentedBuildsGradleArgsCalculator(settingsFor(prof, settings)).calculateGradleArgs(gradleArgs));
@@ -103,7 +113,7 @@ class CompositeProfiler extends Profiler {
     }
 
     @Override
-    public Profiler withConfig(OptionSet parsedOptions) {
-        return new CompositeProfiler(delegates.stream().map(profiler -> profiler.withConfig(parsedOptions)).collect(Collectors.toList()));
+    public boolean isCreatesStacksFiles() {
+        return delegates.stream().anyMatch(Profiler::isCreatesStacksFiles);
     }
 }

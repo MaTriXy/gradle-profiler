@@ -1,36 +1,19 @@
 package org.gradle.profiler.mutations
 
-import org.junit.Rule
-import org.junit.rules.TemporaryFolder
-import spock.lang.Specification
-
-class ApplyChangeToPropertyResourceFileMutatorTest extends Specification {
+class ApplyChangeToPropertyResourceFileMutatorTest extends AbstractMutatorTest {
     public static final String ORIGINAL_CONTENTS = "org.foo=bar"
-    @Rule TemporaryFolder tmpDir = new TemporaryFolder()
 
     def "adds and removes property to end of source file"() {
         def sourceFile = tmpDir.newFile("test.properties")
         sourceFile.text = ORIGINAL_CONTENTS
         def mutator = new ApplyChangeToPropertyResourceFileMutator(sourceFile)
-        mutator.timestamp = 1234
 
         when:
-        mutator.beforeBuild()
+        mutator.beforeScenario(scenarioContext)
+        mutator.beforeBuild(buildContext)
 
         then:
-        sourceFile.text == 'org.foo=bar\norg.acme.some=_1234_1\n'
-
-        when:
-        mutator.beforeBuild()
-
-        then:
-        sourceFile.text == 'org.foo=bar\norg.acme.some=_1234_2\n'
-
-        when:
-        mutator.beforeBuild()
-
-        then:
-        sourceFile.text == 'org.foo=bar\norg.acme.some=_1234_3\n'
+        sourceFile.text == 'org.foo=bar\norg.acme.some=_276d92f3_16ac_4064_9a18_5f1dfd67992f_testScenario_3c4925d7_MEASURE_7\n'
     }
 
     def "reverts changes when nothing has been applied"() {
@@ -39,7 +22,8 @@ class ApplyChangeToPropertyResourceFileMutatorTest extends Specification {
         def mutator = new ApplyChangeToPropertyResourceFileMutator(sourceFile)
 
         when:
-        mutator.cleanup()
+        mutator.beforeScenario(scenarioContext)
+        mutator.afterScenario(scenarioContext)
 
         then:
         sourceFile.text == ORIGINAL_CONTENTS
@@ -51,8 +35,9 @@ class ApplyChangeToPropertyResourceFileMutatorTest extends Specification {
         def mutator = new ApplyChangeToPropertyResourceFileMutator(sourceFile)
 
         when:
-        mutator.beforeBuild()
-        mutator.cleanup()
+        mutator.beforeScenario(scenarioContext)
+        sourceFile.text = "some-change"
+        mutator.afterScenario(scenarioContext)
 
         then:
         sourceFile.text == ORIGINAL_CONTENTS

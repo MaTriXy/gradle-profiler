@@ -1,8 +1,9 @@
 package org.gradle.trace.listener;
 
-import org.gradle.api.execution.internal.ExecuteTaskBuildOperationDetails;
+import static org.gradle.trace.util.FilePathUtil.normalizePathInDisplayName;
+import static org.gradle.trace.util.ReflectionUtil.invokerGetter;
+
 import org.gradle.api.internal.TaskInternal;
-import org.gradle.internal.progress.BuildOperationDescriptor;
 import org.gradle.trace.TraceResult;
 
 public class Gradle40BuildOperationListenerInvocationHandler extends BuildOperationListenerInvocationHandler {
@@ -12,23 +13,23 @@ public class Gradle40BuildOperationListenerInvocationHandler extends BuildOperat
     }
 
     protected String getName(Object operation) {
-        BuildOperationDescriptor operationDescriptor = (BuildOperationDescriptor) operation;
-        if (operationDescriptor.getDetails() instanceof ExecuteTaskBuildOperationDetails) {
-            return ((ExecuteTaskBuildOperationDetails) operationDescriptor.getDetails()).getTask().getPath();
+        TaskInternal task = getTask(operation);
+        if (task == null) {
+            return normalizePathInDisplayName(invokerGetter(operation, "getDisplayName").toString()) + " (" + invokerGetter(operation, "getId") + ")";
+        } else {
+            return task.getPath();
         }
-        return operationDescriptor.getDisplayName() + " (" + operationDescriptor.getId() + ")";
     }
 
     protected TaskInternal getTask(Object operation) {
-        BuildOperationDescriptor operationDescriptor = (BuildOperationDescriptor) operation;
-        if (operationDescriptor.getDetails() instanceof ExecuteTaskBuildOperationDetails) {
-            ExecuteTaskBuildOperationDetails taskDescriptor = (ExecuteTaskBuildOperationDetails) operationDescriptor.getDetails();
-            return taskDescriptor.getTask();
+        Object details = invokerGetter(operation, "getDetails");
+        if (details != null && details.getClass().getName().equals("org.gradle.api.execution.internal.ExecuteTaskBuildOperationDetails")) {
+            return (TaskInternal) invokerGetter(details, "getTask");
         }
         return null;
     }
 
-    protected boolean isTaskCacheable(TaskInternal task) {
-        return task.getState().getTaskOutputCaching().isEnabled();
+    protected boolean isTaskCacheable(TaskInternal task, Object finishedEvent) {
+        return (boolean) invokerGetter(invokerGetter(task.getState(), "getTaskOutputCaching"), "isEnabled");
     }
 }

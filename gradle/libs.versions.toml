@@ -1,0 +1,18 @@
+[versions]
+groovy = "3.0.15"
+spock = "2.1-groovy-3.0"
+# Ladybug Patch 1 (2024.2.1.10)
+testAndroidStudioVersion = "2024.2.1.10"
+testAndroidSdkVersion = "7.3.0"
+
+[libraries]
+toolingApi = "org.gradle:gradle-tooling-api:7.2"
+
+spock-core = { module = "org.spockframework:spock-core", version.ref = "spock" }
+spock-junit4 = { module = "org.spockframework:spock-junit4", version.ref = "spock" }
+
+groovy-core = { module = "org.codehaus.groovy:groovy", version.ref = "groovy" }
+groovy-xml = { module = "org.codehaus.groovy:groovy-xml", version.ref = "groovy" }
+
+[bundles]
+testDependencies = ["spock-core", "spock-junit4", "groovy-core"]

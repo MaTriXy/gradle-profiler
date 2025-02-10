@@ -1,24 +1,16 @@
 package org.gradle.profiler.jfr;
 
-import joptsimple.OptionParser;
-import joptsimple.OptionSet;
+import org.gradle.profiler.InstrumentingProfiler;
 import org.gradle.profiler.JvmArgsCalculator;
-import org.gradle.profiler.Profiler;
-import org.gradle.profiler.ProfilerController;
 import org.gradle.profiler.ScenarioSettings;
 
 import java.io.File;
-import java.util.Collections;
-import java.util.List;
+import java.util.function.Consumer;
 
-public class JfrProfiler extends Profiler {
+public class JfrProfiler extends InstrumentingProfiler {
     private final JFRArgs jfrArgs;
 
-    public JfrProfiler() {
-        this(null);
-    }
-
-    private JfrProfiler(JFRArgs jfrArgs) {
+    JfrProfiler(JFRArgs jfrArgs) {
         this.jfrArgs = jfrArgs;
     }
 
@@ -28,45 +20,37 @@ public class JfrProfiler extends Profiler {
     }
 
     @Override
-    public List<String> summarizeResultFile(File resultFile) {
+    public void summarizeResultFile(File resultFile, Consumer<String> consumer) {
         if (resultFile.getName().endsWith(".jfr")) {
-            return Collections.singletonList(resultFile.getAbsolutePath());
+            consumer.accept("JFR recording: " + resultFile.getAbsolutePath());
+        } else if (resultFile.getName().endsWith(".jfr-flamegraphs")) {
+            consumer.accept("JFR Flame Graphs: " + resultFile.getAbsolutePath());
         }
-        return null;
     }
 
     @Override
-    public Profiler withConfig(OptionSet parsedOptions) {
-        return new JfrProfiler(newConfigObject(parsedOptions));
-    }
-
-    private JFRArgs newConfigObject(OptionSet parsedOptions ) {
-        return new JFRArgs(
-            new File((String) parsedOptions.valueOf( "jfr-fg-home" )),
-            new File((String) parsedOptions.valueOf( "fg-home" ))
-        );
+    public SnapshotCapturingProfilerController newSnapshottingController(ScenarioSettings settings) {
+        return new JFRControl(jfrArgs, settings.computeJfrProfilerOutputLocation());
     }
 
     @Override
-    public ProfilerController newController(final String pid, final ScenarioSettings settings) {
-        return new JFRControl(jfrArgs, pid, settings);
+    protected JvmArgsCalculator jvmArgsWithInstrumentation(ScenarioSettings settings, boolean startRecordingOnProcessStart, boolean captureSnapshotOnProcessExit) {
+        File jfrFile = settings.computeJfrProfilerOutputLocation();
+        return new JFRJvmArgsCalculator(jfrArgs, startRecordingOnProcessStart, captureSnapshotOnProcessExit, jfrFile);
     }
 
     @Override
-    public JvmArgsCalculator newJvmArgsCalculator(ScenarioSettings settings) {
-        return new JFRJvmArgsCalculator();
+    public void validate(ScenarioSettings settings, Consumer<String> reporter) {
+        validateMultipleIterationsWithCleanupAction(settings, reporter);
     }
 
     @Override
-    public void addOptions( final OptionParser parser )
-    {
-        parser.accepts("jfr-fg-home", "JFR FlameGraph home directory - https://github.com/chrishantha/jfr-flame-graph")
-              .availableIf("profile")
-              .withOptionalArg()
-              .defaultsTo(System.getenv().getOrDefault("JFR_FG_HOME_DIR", ""));
-        parser.accepts("fg-home", "FlameGraph home directory")
-              .availableIf("profile")
-              .withOptionalArg()
-              .defaultsTo(System.getenv().getOrDefault("FG_HOME_DIR", ""));
+    protected boolean canRestartRecording(ScenarioSettings settings) {
+        return !settings.getScenario().getInvoker().isReuseDaemon();
+    }
+
+    @Override
+    public boolean isCreatesStacksFiles() {
+        return true;
     }
 }

@@ -1,10 +1,13 @@
 package org.gradle.profiler.jprofiler;
 
 import org.gradle.profiler.OperatingSystem;
+import org.gradle.profiler.ScenarioSettings;
+
+import java.io.File;
 
 public class JProfiler {
 
-    private static final String MAJOR_VERSION = "9";
+    private static final String MAJOR_VERSION = "10";
 
     public static String getDefaultHomeDir() {
         if (OperatingSystem.isWindows()) {
@@ -16,4 +19,13 @@ public class JProfiler {
         }
     }
 
+    public static String getSnapshotPath(ScenarioSettings settings) {
+        int i = 0;
+        File snapshotFile;
+        do {
+            snapshotFile = settings.profilerOutputLocationFor(( i == 0 ? "" : ("_" + i)) + ".jps");
+            ++i;
+        } while (snapshotFile.exists());
+        return snapshotFile.getAbsolutePath();
+    }
 }

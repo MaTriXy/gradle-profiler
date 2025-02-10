@@ -1,23 +1,18 @@
 package org.gradle.profiler.jprofiler;
 
-import org.gradle.profiler.Invoker;
+import org.gradle.profiler.InstrumentingProfiler;
 import org.gradle.profiler.Logging;
-import org.gradle.profiler.ProfilerController;
 import org.gradle.profiler.ScenarioSettings;
 
 import javax.management.*;
 import javax.management.remote.JMXConnector;
 import javax.management.remote.JMXConnectorFactory;
 import javax.management.remote.JMXServiceURL;
-import java.io.File;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.Collections;
-import java.util.logging.Logger;
 
-public class JProfilerController implements ProfilerController {
-
-    public static final int CONNECT_TIMEOUT = 5000;
+public class JProfilerController implements InstrumentingProfiler.SnapshotCapturingProfilerController {
 
     private final JProfilerConfig jProfilerConfig;
     private final ScenarioSettings settings;
@@ -32,47 +27,10 @@ public class JProfilerController implements ProfilerController {
     }
 
     @Override
-    public void start() throws IOException, InterruptedException {
-        if (profileWholeLifeTime()) {
-            startOnceGradleStarts();
-        } else {
-            startNow();
-        }
-    }
-
-    private void startOnceGradleStarts() {
-        Thread thread = new Thread(this::tryStartNow);
-        thread.setName("JProfiler connector");
-        thread.start();
-    }
-
-    private void tryStartNow() {
-        long start = System.currentTimeMillis();
-        Exception lastProblem = null;
-        boolean started = false;
-
-        while (!started && System.currentTimeMillis() - start < CONNECT_TIMEOUT) {
-            try {
-                startNow();
-                started = true;
-            } catch (Exception e) {
-                lastProblem = e;
-                try {
-                    Thread.sleep(10);
-                } catch (InterruptedException interrupt) {
-                    throw new RuntimeException(interrupt);
-                }
-            }
-        }
-        if (!started) {
-            throw new IllegalStateException("Failed to connect to build VM after " + CONNECT_TIMEOUT + "ms", lastProblem);
-        }
-    }
-
-    private void startNow() throws IOException {
-        invoke("startCPURecording", true);
+    public void startRecording(String pid) throws IOException, InterruptedException {
+        invoke("startCPURecording", false);
         if (jProfilerConfig.isRecordAlloc()) {
-            invoke("startAllocRecording", true);
+            invoke("startAllocRecording", false);
         }
         if (jProfilerConfig.isRecordMonitors()) {
             invoke("startMonitorRecording");
@@ -85,79 +43,79 @@ public class JProfilerController implements ProfilerController {
         if (jProfilerConfig.isHeapDump() && hasOperation("markHeap")) { // available in JProfiler 10
             invoke("markHeap");
         }
-        if (profileWholeLifeTime()) {
-            invoke("saveSnapshotOnExit", getSnapshotPath());
+    }
+
+    @Override
+    public void stopRecording(String pid) throws IOException, InterruptedException {
+        invoke("stopCPURecording");
+        if (jProfilerConfig.isRecordAlloc()) {
+            invoke("stopAllocRecording");
+        }
+        if (jProfilerConfig.isRecordMonitors()) {
+            invoke("stopMonitorRecording");
+        }
+        for (String probeName : jProfilerConfig.getRecordedProbes()) {
+            invoke("stopProbeRecording", probeName);
         }
     }
 
     @Override
-    public void stop() throws IOException, InterruptedException {
-        if (!profileWholeLifeTime()) {
-            invoke("stopCPURecording");
-            if (jProfilerConfig.isRecordAlloc()) {
-                invoke("stopAllocRecording");
-            }
-            if (jProfilerConfig.isRecordMonitors()) {
-                invoke("stopMonitorRecording");
-            }
-            for (String probeName : jProfilerConfig.getRecordedProbes()) {
-                invoke("stopProbeRecording", probeName);
-            }
-            if (jProfilerConfig.isHeapDump()) {
-                invoke("triggerHeapDump");
-            }
-            invoke("saveSnapshot", getSnapshotPath());
+    public void captureSnapshot(String pid) throws IOException, InterruptedException {
+        if (jProfilerConfig.isHeapDump()) {
+            invoke("triggerHeapDump");
         }
+        invoke("saveSnapshot", getSnapshotPath());
+    }
+
+    @Override
+    public void stopSession() throws IOException, InterruptedException {
         closeConnection();
     }
 
     private String getSnapshotPath() {
-        File outputDir = settings.getScenario().getOutputDir();
-        String snapshotName = settings.getScenario().getProfileName();
-
-        int i = 0;
-        File snapshotFile;
-        do {
-            snapshotFile = new File(outputDir, snapshotName  + ( i == 0 ? "" : ("_" + i)) + ".jps");
-            ++i;
-        } while (snapshotFile.exists());
-        return snapshotFile.getAbsolutePath();
+        return JProfiler.getSnapshotPath(settings);
     }
 
-    private void ensureConnected() throws IOException, MalformedObjectNameException {
+    private void ensureConnected() throws IOException {
         if (connector == null) {
-            JMXServiceURL jmxUrl = new JMXServiceURL("service:jmx:rmi:///jndi/rmi://localhost:" + jProfilerConfig.getPort() + "/jmxrmi");
-            JMXConnector newConnector = JMXConnectorFactory.newJMXConnector(jmxUrl, Collections.emptyMap());
-            newConnector.connect();
-            connection = newConnector.getMBeanServerConnection();
-            objectName = new ObjectName("com.jprofiler.api.agent.mbean:type=RemoteController");
-            if (!connection.isRegistered(objectName)) {
-                throw new RuntimeException("JProfiler MBean not found");
+            try {
+                JMXServiceURL jmxUrl = new JMXServiceURL("service:jmx:rmi:///jndi/rmi://localhost:" + jProfilerConfig.getPort() + "/jmxrmi");
+                JMXConnector newConnector = JMXConnectorFactory.newJMXConnector(jmxUrl, Collections.emptyMap());
+                newConnector.connect();
+                connection = newConnector.getMBeanServerConnection();
+                objectName = new ObjectName("com.jprofiler.api.agent.mbean:type=RemoteController");
+                if (!connection.isRegistered(objectName)) {
+                    throw new RuntimeException("JProfiler MBean not found");
+                }
+                connector = newConnector;
+            } catch (MalformedObjectNameException e) {
+                throw new RuntimeException(e);
             }
-            connector = newConnector;
         }
     }
 
     private void closeConnection() {
-        try {
-            connector.close();
-        } catch (IOException e) {
-            Logging.detailed().println("Could not close connection to profiled VM. This is normal when running in no-daemon mode");
-        } finally {
-            connector = null;
+        if (connector != null) {
+            try {
+                connector.close();
+            } catch (IOException e) {
+                Logging.detailed().println("Could not close connection to profiled VM.");
+            } finally {
+                connector = null;
+            }
         }
     }
 
     private void invoke(String operationName, Object... parameterValues) throws IOException {
+        ensureConnected();
         String[] parameterTypes = Arrays.stream(parameterValues)
                 .map(Object::getClass)
                 .map(this::replaceWrapperWithPrimitive)
                 .map(Class::getName)
                 .toArray(String[]::new);
         try {
-            ensureConnected();
             connection.invoke(objectName, operationName, parameterValues, parameterTypes);
-        } catch (InstanceNotFoundException | MBeanException | ReflectionException | MalformedObjectNameException e) {
+        } catch (InstanceNotFoundException | MBeanException | ReflectionException e) {
             throw new RuntimeException(e);
         }
     }
@@ -174,15 +132,10 @@ public class JProfilerController implements ProfilerController {
 
     private boolean hasOperation(String operationName) throws IOException {
         try {
-            ensureConnected();
             return Arrays.stream(connection.getMBeanInfo(objectName).getOperations())
                     .anyMatch(operationInfo -> operationInfo.getName().equals(operationName));
-        } catch (InstanceNotFoundException | ReflectionException | MalformedObjectNameException | IntrospectionException e) {
+        } catch (InstanceNotFoundException | ReflectionException | IntrospectionException e) {
             throw new RuntimeException(e);
         }
-    }
-
-    private boolean profileWholeLifeTime() {
-        return settings.getInvocationSettings().getInvoker().equals(Invoker.NoDaemon);
     }
 }

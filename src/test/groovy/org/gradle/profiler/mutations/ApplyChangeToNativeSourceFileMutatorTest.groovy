@@ -1,35 +1,24 @@
 package org.gradle.profiler.mutations
 
-import org.junit.Rule
-import org.junit.rules.TemporaryFolder
-import spock.lang.Specification
+import spock.lang.Unroll
 
-class ApplyChangeToNativeSourceFileMutatorTest extends Specification {
-    @Rule TemporaryFolder tmpDir = new TemporaryFolder()
+@Unroll
+class ApplyChangeToNativeSourceFileMutatorTest extends AbstractMutatorTest {
 
-    def "adds and replaces method to end of cpp source file"() {
-        def sourceFile = tmpDir.newFile("Thing.cpp")
+    def "adds and replaces method to end of #extension source file"() {
+        def sourceFile = tmpDir.newFile("Thing.${extension}")
         sourceFile.text = " "
         def mutator = new ApplyChangeToNativeSourceFileMutator(sourceFile)
-        ApplyChangeToNativeSourceFileMutator.classCreationTime = 1234
 
         when:
-        mutator.beforeBuild()
+        mutator.beforeScenario(scenarioContext)
+        mutator.beforeBuild(buildContext)
 
         then:
-        sourceFile.text == " \nint _m_1234_1 () { }"
+        sourceFile.text == " \nint _m_276d92f3_16ac_4064_9a18_5f1dfd67992f_testScenario_3c4925d7_MEASURE_7 () { }"
 
-        when:
-        mutator.beforeBuild()
-
-        then:
-        sourceFile.text == " \nint _m_1234_2 () { }"
-
-        when:
-        mutator.beforeBuild()
-
-        then:
-        sourceFile.text == " \nint _m_1234_3 () { }"
+        where:
+        extension << ["c", "C", "cpp", "CPP", "c++", "cxx"]
     }
 
     def "adds and replaces method to end of h source file"() {
@@ -37,25 +26,16 @@ class ApplyChangeToNativeSourceFileMutatorTest extends Specification {
         sourceFile.text = "#ifndef ABC\n\n#endif"
 
         def mutator = new ApplyChangeToNativeSourceFileMutator(sourceFile)
-        ApplyChangeToNativeSourceFileMutator.classCreationTime = 1234
 
         when:
-        mutator.beforeBuild()
+        mutator.beforeScenario(scenarioContext)
+        mutator.beforeBuild(buildContext)
 
         then:
-        sourceFile.text == "#ifndef ABC\n\nint _m_1234_1();\n#endif"
+        sourceFile.text == "#ifndef ABC\n\nint _m_276d92f3_16ac_4064_9a18_5f1dfd67992f_testScenario_3c4925d7_MEASURE_7();\n#endif"
 
-        when:
-        mutator.beforeBuild()
-
-        then:
-        sourceFile.text == "#ifndef ABC\n\nint _m_1234_2();\n#endif"
-
-        when:
-        mutator.beforeBuild()
-
-        then:
-        sourceFile.text == "#ifndef ABC\n\nint _m_1234_3();\n#endif"
+        where:
+        extension << ["h", "H", "hpp", "HPP", "hxx"]
     }
 
     def "uses same name for method in CPP and H files"() {
@@ -64,26 +44,31 @@ class ApplyChangeToNativeSourceFileMutatorTest extends Specification {
         sourceFileCPP.text = " "
         sourceFileH.text = "#ifndef ABC\n\n#endif"
 
-        def mutatorCPP = new ApplyChangeToNativeSourceFileMutator(sourceFileCPP)
+        def mutatorC = new ApplyChangeToNativeSourceFileMutator(sourceFileCPP)
         def mutatorH = new ApplyChangeToNativeSourceFileMutator(sourceFileH)
 
-        ApplyChangeToNativeSourceFileMutator.classCreationTime = 1234
-
         when:
-        mutatorCPP.beforeBuild()
-        mutatorH.beforeBuild()
+        mutatorC.beforeScenario(scenarioContext)
+        mutatorC.beforeBuild(buildContext)
 
         then:
-        sourceFileCPP.text == " \nint _m_1234_1 () { }"
-        sourceFileH.text == "#ifndef ABC\n\nint _m_1234_1();\n#endif"
+        sourceFileCPP.text == " \nint _m_276d92f3_16ac_4064_9a18_5f1dfd67992f_testScenario_3c4925d7_MEASURE_7 () { }"
 
         when:
-        mutatorCPP.beforeBuild()
-        mutatorH.beforeBuild()
+        mutatorH.beforeScenario(scenarioContext)
+        mutatorH.beforeBuild(buildContext)
 
         then:
-        sourceFileCPP.text == " \nint _m_1234_2 () { }"
-        sourceFileH.text == "#ifndef ABC\n\nint _m_1234_2();\n#endif"
+        sourceFileH.text == "#ifndef ABC\n\nint _m_276d92f3_16ac_4064_9a18_5f1dfd67992f_testScenario_3c4925d7_MEASURE_7();\n#endif"
     }
 
+    def "complains when a file with not-allowed file extension is specified"() {
+        def file = tmpDir.newFile("Thing.png")
+
+        when:
+        new ApplyChangeToNativeSourceFileMutator(file)
+
+        then:
+        thrown(IllegalArgumentException)
+    }
 }

@@ -15,38 +15,30 @@
  */
 package org.gradle.profiler;
 
-import joptsimple.OptionParser;
-import joptsimple.OptionSet;
-import org.gradle.profiler.bs.BuildScanProfiler;
-import org.gradle.profiler.ct.ChromeTraceProfiler;
-import org.gradle.profiler.hp.HpProfiler;
-import org.gradle.profiler.jfr.JfrProfiler;
-import org.gradle.profiler.jprofiler.JProfilerProfiler;
-import org.gradle.profiler.yjp.YourKitProfiler;
-
 import java.io.File;
-import java.util.*;
-import java.util.stream.Collectors;
+import java.util.function.Consumer;
 
-public class Profiler {
+public abstract class Profiler {
 
     public static final Profiler NONE = new Profiler() {
+        @Override
+        public boolean requiresGradle() {
+            return false;
+        }
+
         @Override
         public String toString() {
             return "none";
         }
     };
 
-    private final static Map<String, Profiler> AVAILABLE_PROFILERS = Collections.unmodifiableMap(
-            new LinkedHashMap<String, Profiler>() {{
-                put("jfr", new JfrProfiler());
-                put("hp", new HpProfiler());
-                put("buildscan", new BuildScanProfiler());
-                put("chrome-trace", new ChromeTraceProfiler());
-                put("yourkit", new YourKitProfiler());
-                put("jprofiler", new JProfilerProfiler());
-            }}
-    );
+    /**
+     * Whether this profiler supports only Gradle builds.
+     */
+    public abstract boolean requiresGradle();
+
+    public void validate(ScenarioSettings settings, Consumer<String> reporter) {
+    }
 
     public ProfilerController newController(String pid, ScenarioSettings settings) {
         return ProfilerController.EMPTY;
@@ -80,40 +72,13 @@ public class Profiler {
         return GradleArgsCalculator.DEFAULT;
     }
 
-    public Profiler withConfig(OptionSet parsedOptions) {
-        return this;
+    /**
+     * Describe the given file, if recognized and should be reported to the user.
+     */
+    public void summarizeResultFile(File resultFile, Consumer<String> consumer) {
     }
 
-    public void addOptions(OptionParser parser) {
-    }
-
-    public List<String> summarizeResultFile(File resultFile) {
-        return null;
-    }
-
-    public static Set<String> getAvailableProfilers() {
-        return AVAILABLE_PROFILERS.keySet();
-    }
-
-    static void configureParser(OptionParser parser) {
-        for (Profiler profiler : AVAILABLE_PROFILERS.values()) {
-            profiler.addOptions(parser);
-        }
-    }
-
-    private static Profiler of(String name) {
-        Profiler profiler = AVAILABLE_PROFILERS.get(name.toLowerCase());
-        if (profiler == null) {
-            throw new IllegalArgumentException("Unknown profiler : " + name);
-        }
-        return profiler;
-    }
-
-    public static Profiler of(List<String> profilersList) {
-        if (profilersList.size() == 1) {
-            String first = profilersList.get(0);
-            return of(first);
-        }
-        return new CompositeProfiler(profilersList.stream().map(Profiler::of).collect(Collectors.toList()));
+    public boolean isCreatesStacksFiles() {
+        return false;
     }
 }
